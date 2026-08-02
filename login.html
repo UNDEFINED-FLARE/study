@@ -72,7 +72,7 @@
 
     const user = await login({ email, password, rememberMe });
     const profile = await getUserProfile(user.uid);
-    window.location.href = profile?.role === "admin" ? "/admin/dashboard.html" : "/dashboard.html";
+    window.location.href = profile?.role === "admin" ? "./admin/dashboard.html" : "./dashboard.html";
   });
 </script>
 </body>
