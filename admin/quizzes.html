@@ -33,10 +33,10 @@
 <footer>&copy; <span id="year"></span> StudyHub Admin.</footer>
 
 <script type="module">
-  import { requireAuth } from "/js/auth.js";
-  import { renderNav } from "/js/nav.js";
-  import { fetchAllQuizzesAdmin, deleteQuiz, fetchQuestionsAdmin } from "/js/admin-quizzes.js";
-  import { escapeHtml, toast } from "/js/utils.js";
+  import { requireAuth } from "../js/auth.js";
+  import { renderNav } from "../js/nav.js";
+  import { fetchAllQuizzesAdmin, deleteQuiz, fetchQuestionsAdmin } from "../js/admin-quizzes.js";
+  import { escapeHtml, toast } from "../js/utils.js";
 
   document.getElementById("year").textContent = new Date().getFullYear();
 
