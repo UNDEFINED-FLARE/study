@@ -36,10 +36,10 @@
 <footer>&copy; <span id="year"></span> StudyHub Admin.</footer>
 
 <script type="module">
-  import { requireAuth } from "/js/auth.js";
-  import { renderNav } from "/js/nav.js";
+  import { requireAuth } from "../js/auth.js";
+  import { renderNav } from "../js/nav.js";
   import { fetchAllStudents, fetchAllResultsGrouped, removeStudentProfile } from "/js/admin-students.js";
-  import { escapeHtml, formatDate, initials, toast, debounce } from "/js/utils.js";
+  import { escapeHtml, formatDate, initials, toast, debounce } from "../js/utils.js";
 
   document.getElementById("year").textContent = new Date().getFullYear();
   let students = [];
