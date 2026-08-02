@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz editor — StudyHub Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section">
+  <div class="section-head">
+    <div><h2 id="page-heading">New quiz</h2><p>Set up quiz details, then add your questions below.</p></div>
+    <a href="/admin/quizzes.html" class="btn btn-outline">← Back to quizzes</a>
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:24px;">
+    <div class="alert alert-error" id="quiz-form-alert"></div>
+    <form id="quiz-form">
+      <div class="grid grid-2">
+        <div class="field"><label for="quiz-title">Quiz title</label><input class="input" id="quiz-title" required></div>
+        <div class="field"><label for="quiz-subject">Subject</label><input class="input" id="quiz-subject" required></div>
+      </div>
+      <div class="grid grid-3">
+        <div class="field"><label for="quiz-passing">Passing mark (%)</label><input class="input" id="quiz-passing" type="number" min="0" max="100" value="50" required></div>
+        <div class="field"><label for="quiz-timer">Timer (minutes, optional)</label><input class="input" id="quiz-timer" type="number" min="1" placeholder="No limit"></div>
+        <div class="field"><label for="quiz-attempts">Max attempts (optional)</label><input class="input" id="quiz-attempts" type="number" min="1" placeholder="Unlimited"></div>
+      </div>
+      <label class="checkbox-row mt-8" style="margin-bottom:18px;">
+        <input type="checkbox" id="quiz-random"> Show questions in random order
+      </label>
+      <button class="btn btn-primary" type="submit">Save quiz details</button>
+    </form>
+  </div>
+
+  <div id="questions-section" class="hidden">
+    <div class="section-head">
+      <div><h3 style="font-size:1.1rem; font-weight:700;">Questions</h3></div>
+      <button class="btn btn-primary btn-sm" id="add-question-btn">+ Add question</button>
+    </div>
+    <div id="questions-list"></div>
+  </div>
+
+  <div id="save-first-hint" class="empty-state">
+    <div class="icon">💾</div><p>Save the quiz details above before adding questions.</p>
+  </div>
+</div>
+
+<!-- Question modal -->
+<div class="modal-overlay" id="question-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="question-modal-title">Add question</h3><button class="modal-close" id="question-modal-close">&times;</button></div>
+    <div class="alert alert-error" id="question-form-alert"></div>
+    <form id="question-form">
+      <input type="hidden" id="question-id">
+      <div class="field">
+        <label for="question-type">Question type</label>
+        <select class="select" id="question-type">
+          <option value="mc">Multiple choice</option>
+          <option value="tf">True / False</option>
+          <option value="short">Short answer</option>
+        </select>
+      </div>
+      <div class="field"><label for="question-text">Question</label><textarea class="textarea" id="question-text" rows="2" required></textarea></div>
+
+      <div id="mc-fields">
+        <div class="grid grid-2">
+          <div class="field"><label>Option A</label><input class="input" id="option-a"></div>
+          <div class="field"><label>Option B</label><input class="input" id="option-b"></div>
+          <div class="field"><label>Option C</label><input class="input" id="option-c"></div>
+          <div class="field"><label>Option D</label><input class="input" id="option-d"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="correct-answer">Correct answer</label>
+        <input class="input" id="correct-answer" required placeholder="Must exactly match one option / True / False">
+        <div class="hint">For multiple choice, type the option text exactly (e.g. the same text as Option B). For True/False, type True or False.</div>
+      </div>
+
+      <div class="field"><label for="explanation">Explanation (optional)</label><textarea class="textarea" id="explanation" rows="2" placeholder="Shown to students after they answer"></textarea></div>
+
+      <button class="btn btn-primary btn-block" type="submit">Save question</button>
+    </form>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub Admin.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import {
+    fetchQuizAdmin, createQuiz, updateQuiz,
+    fetchQuestionsAdmin, addQuestion, updateQuestion, deleteQuestion,
+  } from "/js/admin-quizzes.js";
+  import { escapeHtml, toast, friendlyAuthError, getParam } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+  let quizId = getParam("id");
+  let questions = [];
+
+  requireAuth("admin").then(async ({ profile }) => {
+    renderNav({ role: "admin", active: "quizzes", profile });
+
+    if (quizId) {
+      const quiz = await fetchQuizAdmin(quizId);
+      if (quiz) {
+        document.getElementById("page-heading").textContent = "Edit quiz";
+        document.getElementById("quiz-title").value = quiz.title || "";
+        document.getElementById("quiz-subject").value = quiz.subject || "";
+        document.getElementById("quiz-passing").value = quiz.passing_mark ?? 50;
+        document.getElementById("quiz-timer").value = quiz.timer || "";
+        document.getElementById("quiz-attempts").value = quiz.max_attempts || "";
+        document.getElementById("quiz-random").checked = !!quiz.random_order;
+        showQuestionsSection();
+        await loadQuestions();
+      }
+    }
+  });
+
+  function showQuestionsSection() {
+    document.getElementById("questions-section").classList.remove("hidden");
+    document.getElementById("save-first-hint").classList.add("hidden");
+  }
+
+  document.getElementById("quiz-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    const payload = {
+      title: document.getElementById("quiz-title").value.trim(),
+      subject: document.getElementById("quiz-subject").value.trim(),
+      passing_mark: document.getElementById("quiz-passing").value,
+      timer: document.getElementById("quiz-timer").value,
+      max_attempts: document.getElementById("quiz-attempts").value,
+      random_order: document.getElementById("quiz-random").checked,
+    };
+
+    try {
+      if (quizId) {
+        await updateQuiz(quizId, payload);
+        toast("Quiz details saved.", "success");
+      } else {
+        quizId = await createQuiz(payload);
+        history.replaceState(null, "", `/admin/quiz-editor.html?id=${quizId}`);
+        toast("Quiz created — now add some questions.", "success");
+        showQuestionsSection();
+        await loadQuestions();
+      }
+    } catch (err) {
+      const alertEl = document.getElementById("quiz-form-alert");
+      alertEl.textContent = friendlyAuthError(err);
+      alertEl.classList.add("show");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save quiz details";
+    }
+  });
+
+  async function loadQuestions() {
+    questions = await fetchQuestionsAdmin(quizId);
+    const listEl = document.getElementById("questions-list");
+    if (questions.length === 0) {
+      listEl.innerHTML = `<div class="empty-state"><div class="icon">❓</div><p>No questions yet — add your first one.</p></div>`;
+      return;
+    }
+    listEl.innerHTML = questions
+      .map(
+        (q, i) => `
+        <div class="panel mt-16">
+          <div class="flex justify-between items-start gap-12">
+            <div>
+              <span class="badge badge-purple">${q.type === "mc" ? "Multiple choice" : q.type === "tf" ? "True/False" : "Short answer"}</span>
+              <p style="font-weight:600; margin-top:8px;">${i + 1}. ${escapeHtml(q.question)}</p>
+              <p class="text-grey mt-8" style="font-size:0.82rem;">Correct answer: <b>${escapeHtml(q.correct_answer)}</b></p>
+            </div>
+            <div class="row-actions">
+              <button class="icon-btn" data-edit-q="${q.id}" title="Edit">✏️</button>
+              <button class="icon-btn" data-delete-q="${q.id}" title="Delete">🗑️</button>
+            </div>
+          </div>
+        </div>`
+      )
+      .join("");
+
+    listEl.querySelectorAll("[data-edit-q]").forEach((btn) => btn.addEventListener("click", () => openQuestionModal(btn.dataset.editQ)));
+    listEl.querySelectorAll("[data-delete-q]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        if (!confirm("Delete this question?")) return;
+        await deleteQuestion(btn.dataset.deleteQ);
+        toast("Question deleted.", "success");
+        loadQuestions();
+      })
+    );
+  }
+
+  document.getElementById("add-question-btn").addEventListener("click", () => openQuestionModal());
+
+  const qModal = document.getElementById("question-modal");
+  document.getElementById("question-modal-close").addEventListener("click", () => qModal.classList.remove("open"));
+
+  const typeSelect = document.getElementById("question-type");
+  const mcFields = document.getElementById("mc-fields");
+  typeSelect.addEventListener("change", () => {
+    mcFields.style.display = typeSelect.value === "mc" ? "" : "none";
+  });
+
+  function openQuestionModal(questionId) {
+    const q = questions.find((x) => x.id === questionId);
+    document.getElementById("question-modal-title").textContent = q ? "Edit question" : "Add question";
+    document.getElementById("question-id").value = questionId || "";
+    document.getElementById("question-type").value = q?.type || "mc";
+    mcFields.style.display = (q?.type || "mc") === "mc" ? "" : "none";
+    document.getElementById("question-text").value = q?.question || "";
+    document.getElementById("option-a").value = q?.option_a || "";
+    document.getElementById("option-b").value = q?.option_b || "";
+    document.getElementById("option-c").value = q?.option_c || "";
+    document.getElementById("option-d").value = q?.option_d || "";
+    document.getElementById("correct-answer").value = q?.correct_answer || "";
+    document.getElementById("explanation").value = q?.explanation || "";
+    document.getElementById("question-form-alert").classList.remove("show");
+    qModal.classList.add("open");
+  }
+
+  document.getElementById("question-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    const questionId = document.getElementById("question-id").value;
+    const payload = {
+      type: document.getElementById("question-type").value,
+      question: document.getElementById("question-text").value.trim(),
+      option_a: document.getElementById("option-a").value.trim(),
+      option_b: document.getElementById("option-b").value.trim(),
+      option_c: document.getElementById("option-c").value.trim(),
+      option_d: document.getElementById("option-d").value.trim(),
+      correct_answer: document.getElementById("correct-answer").value.trim(),
+      explanation: document.getElementById("explanation").value.trim(),
+    };
+
+    try {
+      if (questionId) {
+        await updateQuestion(questionId, payload);
+        toast("Question updated.", "success");
+      } else {
+        await addQuestion(quizId, payload);
+        toast("Question added.", "success");
+      }
+      qModal.classList.remove("open");
+      loadQuestions();
+    } catch (err) {
+      const alertEl = document.getElementById("question-form-alert");
+      alertEl.textContent = friendlyAuthError(err);
+      alertEl.classList.add("show");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save question";
+    }
+  });
+</script>
+</body>
+</html>

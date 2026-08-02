@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taking quiz — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section quiz-shell" id="quiz-shell">
+  <div class="empty-state" id="loading-state"><div class="icon">⏳</div><p>Loading quiz…</p></div>
+</div>
+
+<!-- Confirm submit modal -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>Submit quiz?</h3><button class="modal-close" id="modal-close">&times;</button></div>
+    <p class="text-grey" style="font-size:0.9rem;" id="confirm-summary"></p>
+    <div class="flex gap-12 mt-24">
+      <button class="btn btn-outline w-full" id="cancel-submit">Keep answering</button>
+      <button class="btn btn-primary w-full" id="confirm-submit">Submit quiz</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { fetchQuiz, fetchQuestionsForQuiz, gradeQuiz, saveResult } from "/js/quiz.js";
+  import { escapeHtml, getParam, toast } from "/js/utils.js";
+
+  const quizId = getParam("id");
+  let quiz, questions, currentIndex = 0, answers = {}, timerInterval, secondsLeft, userId;
+
+  requireAuth().then(async ({ user, profile }) => {
+    renderNav({ role: profile?.role || "student", active: "quizzes", profile });
+    userId = user.uid;
+
+    if (!quizId) {
+      renderError("No quiz was specified.");
+      return;
+    }
+
+    quiz = await fetchQuiz(quizId);
+    if (!quiz) {
+      renderError("This quiz could not be found. It may have been removed.");
+      return;
+    }
+
+    questions = await fetchQuestionsForQuiz(quizId, quiz.random_order);
+    if (questions.length === 0) {
+      renderError("This quiz doesn't have any questions yet.");
+      return;
+    }
+
+    buildQuizUI();
+    if (quiz.timer) startTimer(quiz.timer * 60);
+  });
+
+  function renderError(message) {
+    document.getElementById("quiz-shell").innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>${escapeHtml(message)}</p><a href="/quizzes.html" class="btn btn-outline btn-sm mt-16">Back to quizzes</a></div>`;
+  }
+
+  function buildQuizUI() {
+    document.getElementById("quiz-shell").innerHTML = `
+      <div class="flex justify-between items-center" style="flex-wrap:wrap; gap:12px;">
+        <div>
+          <h2>${escapeHtml(quiz.title)}</h2>
+          <div class="quiz-progress-text" id="progress-text"></div>
+        </div>
+        <div class="quiz-timer" id="quiz-timer" style="${quiz.timer ? "" : "display:none;"}">⏱ --:--</div>
+      </div>
+      <div id="question-mount"></div>
+      <div class="quiz-nav">
+        <button class="btn btn-outline" id="prev-btn">← Previous</button>
+        <button class="btn btn-primary" id="next-btn">Next →</button>
+      </div>
+      <div class="quiz-dots" id="quiz-dots"></div>
+    `;
+    document.getElementById("prev-btn").addEventListener("click", () => go(currentIndex - 1));
+    document.getElementById("next-btn").addEventListener("click", () => go(currentIndex + 1));
+    renderQuestion();
+  }
+
+  function go(index) {
+    if (index < 0 || index >= questions.length) return;
+    currentIndex = index;
+    renderQuestion();
+  }
+
+  function renderQuestion() {
+    const q = questions[currentIndex];
+    document.getElementById("progress-text").textContent = `Question ${currentIndex + 1} of ${questions.length}`;
+    document.getElementById("prev-btn").disabled = currentIndex === 0;
+    document.getElementById("next-btn").textContent = currentIndex === questions.length - 1 ? "Review & submit" : "Next →";
+
+    const mount = document.getElementById("question-mount");
+    let optionsHtml = "";
+
+    if (q.type === "short") {
+      optionsHtml = `<input class="input mt-16" type="text" id="short-answer-input" placeholder="Type your answer…" value="${escapeHtml(answers[q.id] || "")}">`;
+    } else {
+      const options =
+        q.type === "tf"
+          ? [{ key: "True", label: "True" }, { key: "False", label: "False" }]
+          : [
+              { key: "option_a", label: q.option_a },
+              { key: "option_b", label: q.option_b },
+              { key: "option_c", label: q.option_c },
+              { key: "option_d", label: q.option_d },
+            ].filter((o) => o.label);
+
+      optionsHtml = `<div class="option-list">${options
+        .map(
+          (o) => `
+        <label class="option-item ${answers[q.id] === (q.type === "tf" ? o.key : o.label) ? "selected" : ""}">
+          <input type="radio" name="option" value="${escapeHtml(q.type === "tf" ? o.key : o.label)}" ${answers[q.id] === (q.type === "tf" ? o.key : o.label) ? "checked" : ""}>
+          ${escapeHtml(o.label)}
+        </label>`
+        )
+        .join("")}</div>`;
+    }
+
+    mount.innerHTML = `
+      <div class="question-card">
+        <div class="question-num">${(q.type === "mc" ? "Multiple choice" : q.type === "tf" ? "True / False" : "Short answer")}</div>
+        <div class="question-text">${escapeHtml(q.question)}</div>
+        ${optionsHtml}
+      </div>`;
+
+    if (q.type === "short") {
+      document.getElementById("short-answer-input").addEventListener("input", (e) => {
+        answers[q.id] = e.target.value;
+        renderDots();
+      });
+    } else {
+      mount.querySelectorAll('input[name="option"]').forEach((input) => {
+        input.addEventListener("change", () => {
+          answers[q.id] = input.value;
+          mount.querySelectorAll(".option-item").forEach((el) => el.classList.remove("selected"));
+          input.closest(".option-item").classList.add("selected");
+          renderDots();
+        });
+      });
+    }
+
+    renderDots();
+  }
+
+  function renderDots() {
+    const dotsEl = document.getElementById("quiz-dots");
+    dotsEl.innerHTML = questions
+      .map((q, i) => {
+        const cls = i === currentIndex ? "current" : answers[q.id] ? "answered" : "";
+        return `<button class="quiz-dot ${cls}" data-i="${i}">${i + 1}</button>`;
+      })
+      .join("");
+    dotsEl.querySelectorAll(".quiz-dot").forEach((btn) => btn.addEventListener("click", () => go(Number(btn.dataset.i))));
+
+    const nextBtn = document.getElementById("next-btn");
+    if (currentIndex === questions.length - 1) {
+      nextBtn.onclick = openConfirmModal;
+    } else {
+      nextBtn.onclick = () => go(currentIndex + 1);
+    }
+  }
+
+  function startTimer(totalSeconds) {
+    secondsLeft = totalSeconds;
+    const timerEl = document.getElementById("quiz-timer");
+    updateTimerDisplay();
+    timerInterval = setInterval(() => {
+      secondsLeft -= 1;
+      updateTimerDisplay();
+      if (secondsLeft <= 0) {
+        clearInterval(timerInterval);
+        toast("Time's up! Submitting your quiz…", "error");
+        submitQuiz();
+      }
+    }, 1000);
+
+    function updateTimerDisplay() {
+      const m = Math.floor(secondsLeft / 60).toString().padStart(2, "0");
+      const s = (secondsLeft % 60).toString().padStart(2, "0");
+      timerEl.textContent = `⏱ ${m}:${s}`;
+      timerEl.classList.toggle("low", secondsLeft <= 30);
+    }
+  }
+
+  function openConfirmModal() {
+    const answeredCount = questions.filter((q) => answers[q.id]).length;
+    document.getElementById("confirm-summary").textContent =
+      `You've answered ${answeredCount} of ${questions.length} questions. Once submitted, you can't change your answers.`;
+    document.getElementById("confirm-modal").classList.add("open");
+  }
+  document.getElementById("modal-close").addEventListener("click", () => document.getElementById("confirm-modal").classList.remove("open"));
+  document.getElementById("cancel-submit").addEventListener("click", () => document.getElementById("confirm-modal").classList.remove("open"));
+  document.getElementById("confirm-submit").addEventListener("click", submitQuiz);
+
+  let submitting = false;
+  async function submitQuiz() {
+    if (submitting) return;
+    submitting = true;
+    clearInterval(timerInterval);
+    document.getElementById("confirm-modal").classList.remove("open");
+
+    try {
+      const { score, total, percentage, perQuestion } = gradeQuiz(questions, answers);
+      const resultId = await saveResult({ userId, quizId, score, total, percentage, perQuestion });
+      window.location.href = `/quiz-results.html?id=${resultId}`;
+    } catch (e) {
+      console.error(e);
+      toast("Couldn't submit your quiz. Please try again.", "error");
+      submitting = false;
+    }
+  }
+</script>
+</body>
+</html>

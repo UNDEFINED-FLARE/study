@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin dashboard — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section">
+  <div class="section-head"><div><h2>Admin dashboard</h2><p>An overview of StudyHub activity.</p></div></div>
+
+  <div class="dash-grid">
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:var(--blue-light); color:var(--blue-deep);">👥</div></div><div class="stat-val" id="stat-users">–</div><div class="stat-label">Total users</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:var(--purple-light); color:var(--purple-deep);">📝</div></div><div class="stat-val" id="stat-quizzes">–</div><div class="stat-label">Total quizzes</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:var(--success-light); color:var(--success);">📄</div></div><div class="stat-val" id="stat-notes">–</div><div class="stat-label">Total notes</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#FEF3C7; color:#B45309;">🟢</div></div><div class="stat-val" id="stat-active">–</div><div class="stat-label">Active today</div></div>
+  </div>
+
+  <div class="grid grid-3" style="margin-bottom:22px;">
+    <div class="panel"><div class="panel-head"><h3>Daily active</h3></div><div class="stat-val" id="active-daily">–</div><p class="text-grey" style="font-size:0.8rem;">Logged in, last 24h</p></div>
+    <div class="panel"><div class="panel-head"><h3>Weekly active</h3></div><div class="stat-val" id="active-weekly">–</div><p class="text-grey" style="font-size:0.8rem;">Logged in, last 7 days</p></div>
+    <div class="panel"><div class="panel-head"><h3>Monthly active</h3></div><div class="stat-val" id="active-monthly">–</div><p class="text-grey" style="font-size:0.8rem;">Logged in, last 30 days</p></div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="panel">
+      <div class="panel-head"><h3>New signups (last 7 days)</h3></div>
+      <canvas id="signups-chart" height="180"></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Quiz completion &amp; average score</h3></div>
+      <canvas id="quiz-stats-chart" height="180"></canvas>
+      <p class="text-grey mt-16" style="font-size:0.82rem;">Total attempts: <b id="total-attempts">–</b> · Average score: <b id="overall-avg">–</b></p>
+    </div>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub Admin.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import {
+    fetchOverviewCounts, fetchAllResultsAdmin, fetchAllLoginLogs,
+    computeActiveUsers, computeQuizStats, fetchWeeklySignups,
+  } from "/js/admin-dashboard.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  requireAuth("admin").then(async ({ profile }) => {
+    renderNav({ role: "admin", active: "dashboard", profile });
+
+    const [counts, results, loginLogs, signups] = await Promise.all([
+      fetchOverviewCounts(),
+      fetchAllResultsAdmin(),
+      fetchAllLoginLogs(),
+      fetchWeeklySignups(),
+    ]);
+
+    document.getElementById("stat-users").textContent = counts.totalUsers;
+    document.getElementById("stat-quizzes").textContent = counts.totalQuizzes;
+    document.getElementById("stat-notes").textContent = counts.totalNotes;
+
+    const active = computeActiveUsers(loginLogs);
+    document.getElementById("stat-active").textContent = active.daily;
+    document.getElementById("active-daily").textContent = active.daily;
+    document.getElementById("active-weekly").textContent = active.weekly;
+    document.getElementById("active-monthly").textContent = active.monthly;
+
+    const quizStats = computeQuizStats(results);
+    document.getElementById("total-attempts").textContent = quizStats.totalAttempts;
+    document.getElementById("overall-avg").textContent = `${quizStats.avgScore}%`;
+
+    new Chart(document.getElementById("signups-chart"), {
+      type: "bar",
+      data: { labels: signups.labels, datasets: [{ label: "Signups", data: signups.data, backgroundColor: "#2563EB", borderRadius: 6, maxBarThickness: 34 }] },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } },
+    });
+
+    const quizIds = Object.keys(quizStats.byQuiz).slice(0, 6);
+    new Chart(document.getElementById("quiz-stats-chart"), {
+      type: "pie",
+      data: {
+        labels: quizIds.length ? quizIds.map((id, i) => `Quiz ${i + 1}`) : ["No attempts yet"],
+        datasets: [
+          {
+            data: quizIds.length ? quizIds.map((id) => quizStats.byQuiz[id].attempts) : [1],
+            backgroundColor: ["#2563EB", "#7C3AED", "#16A34A", "#F59E0B", "#DC2626", "#0EA5E9"],
+          },
+        ],
+      },
+      options: { plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } } },
+    });
+  });
+</script>
+</body>
+</html>

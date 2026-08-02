@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section">
+  <div class="section-head">
+    <div><h2 id="welcome-heading">Welcome back</h2><p>Here's how your studying is going.</p></div>
+  </div>
+
+  <div class="dash-grid">
+    <div class="stat-card">
+      <div class="stat-top"><div class="stat-icon" style="background:var(--blue-light); color:var(--blue-deep);">📄</div></div>
+      <div class="stat-val" id="stat-notes-viewed">–</div>
+      <div class="stat-label">Notes viewed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-top"><div class="stat-icon" style="background:var(--purple-light); color:var(--purple-deep);">📝</div></div>
+      <div class="stat-val" id="stat-quizzes-taken">–</div>
+      <div class="stat-label">Quizzes taken</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-top"><div class="stat-icon" style="background:var(--success-light); color:var(--success);">📈</div></div>
+      <div class="stat-val" id="stat-avg-score">–</div>
+      <div class="stat-label">Average score</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-top"><div class="stat-icon" style="background:#FEF3C7; color:#B45309;">🚀</div></div>
+      <div class="stat-val" id="stat-progress">–</div>
+      <div class="stat-label">Quizzes attempted</div>
+      <div class="progress-track mt-8"><div class="progress-fill" id="progress-fill" style="width:0%;"></div></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="panel">
+      <div class="panel-head"><h3>Weekly activity</h3></div>
+      <canvas id="weekly-chart" height="180"></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Recent quiz performance</h3></div>
+      <canvas id="performance-chart" height="180"></canvas>
+    </div>
+  </div>
+
+  <div class="panel mt-24">
+    <div class="panel-head"><h3>Recent activity</h3></div>
+    <div id="activity-list"></div>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { fetchStudentResults, fetchStudentActivity, computeStudentStats, weeklyActivity, quizPerformanceSeries } from "/js/dashboard.js";
+  import { fetchAllQuizzes } from "/js/quiz.js";
+  import { escapeHtml, formatDate } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  requireAuth("student").then(async ({ user, profile }) => {
+    renderNav({ role: "student", active: "dashboard", profile });
+    document.getElementById("welcome-heading").textContent = `Welcome back, ${profile?.name?.split(" ")[0] || "there"} 👋`;
+
+    const [results, activity, allQuizzes] = await Promise.all([
+      fetchStudentResults(user.uid),
+      fetchStudentActivity(user.uid),
+      fetchAllQuizzes(),
+    ]);
+
+    const { totalQuizzes, avgScore } = computeStudentStats(results);
+    const uniqueNotesViewed = new Set(activity.filter((a) => a.type === "note_view").map((a) => a.ref_id)).size;
+    const attemptedQuizIds = new Set(results.map((r) => r.quiz_id));
+    const progressPct = allQuizzes.length ? Math.round((attemptedQuizIds.size / allQuizzes.length) * 100) : 0;
+
+    document.getElementById("stat-notes-viewed").textContent = uniqueNotesViewed;
+    document.getElementById("stat-quizzes-taken").textContent = totalQuizzes;
+    document.getElementById("stat-avg-score").textContent = totalQuizzes ? `${avgScore}%` : "–";
+    document.getElementById("stat-progress").textContent = `${attemptedQuizIds.size}/${allQuizzes.length}`;
+    document.getElementById("progress-fill").style.width = `${progressPct}%`;
+
+    renderCharts(results, activity);
+    renderActivity(results, activity);
+  });
+
+  function renderCharts(results, activity) {
+    const weekly = weeklyActivity(results, activity);
+    new Chart(document.getElementById("weekly-chart"), {
+      type: "bar",
+      data: {
+        labels: weekly.labels,
+        datasets: [{ label: "Activity", data: weekly.data, backgroundColor: "#2563EB", borderRadius: 6, maxBarThickness: 34 }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+      },
+    });
+
+    const perf = quizPerformanceSeries(results);
+    new Chart(document.getElementById("performance-chart"), {
+      type: "line",
+      data: {
+        labels: perf.labels.length ? perf.labels : ["–"],
+        datasets: [
+          {
+            label: "Score %",
+            data: perf.data.length ? perf.data : [0],
+            borderColor: "#7C3AED",
+            backgroundColor: "rgba(124,58,237,0.12)",
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: "#7C3AED",
+          },
+        ],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, max: 100 } },
+      },
+    });
+  }
+
+  function renderActivity(results, activity) {
+    const combined = [
+      ...results.map((r) => ({
+        icon: "📝",
+        text: `Scored ${r.percentage}% on a quiz`,
+        time: r.completed_at,
+      })),
+      ...activity.map((a) => ({
+        icon: a.type === "note_view" ? "📄" : "📌",
+        text: a.type === "note_view" ? `Viewed note "${a.label || ""}"` : "Activity",
+        time: a.created_at,
+      })),
+    ]
+      .filter((x) => x.time)
+      .sort((a, b) => (b.time?.toDate?.() || 0) - (a.time?.toDate?.() || 0))
+      .slice(0, 10);
+
+    const listEl = document.getElementById("activity-list");
+    if (combined.length === 0) {
+      listEl.innerHTML = `<div class="empty-state"><div class="icon">🌱</div><p>No activity yet — start by reading a note or taking a quiz.</p></div>`;
+      return;
+    }
+    listEl.innerHTML = combined
+      .map(
+        (item) => `
+        <div class="activity-item">
+          <div class="activity-icon">${item.icon}</div>
+          <div>
+            <div class="activity-text">${escapeHtml(item.text)}</div>
+            <div class="activity-time">${formatDate(item.time)}</div>
+          </div>
+        </div>`
+      )
+      .join("");
+  }
+</script>
+</body>
+</html>

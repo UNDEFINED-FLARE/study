@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notes — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section">
+  <div class="section-head">
+    <div><h2>Study notes</h2><p>Search, filter and bookmark notes across every subject.</p></div>
+  </div>
+
+  <div class="flex gap-12" style="flex-wrap:wrap; margin-bottom:22px;">
+    <input class="input" id="search-input" type="text" placeholder="Search notes…" style="max-width:320px;">
+    <select class="select" id="subject-filter" style="max-width:200px;">
+      <option value="">All subjects</option>
+    </select>
+    <select class="select" id="bookmark-filter" style="max-width:200px;">
+      <option value="">All notes</option>
+      <option value="bookmarked">Bookmarked only</option>
+    </select>
+  </div>
+
+  <div class="grid grid-3" id="notes-grid">
+    <div class="note-card"><div class="skeleton" style="height:140px;"></div></div>
+    <div class="note-card"><div class="skeleton" style="height:140px;"></div></div>
+    <div class="note-card"><div class="skeleton" style="height:140px;"></div></div>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { fetchAllNotes, filterNotes, uniqueSubjects, toggleBookmark, logNoteView } from "/js/notes.js";
+  import { escapeHtml, formatDate, debounce, getParam, toast } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  let allNotes = [];
+  let bookmarks = [];
+  let userId = null;
+
+  requireAuth().then(async ({ user, profile }) => {
+    renderNav({ role: profile?.role || "student", active: "notes", profile });
+    userId = user.uid;
+    bookmarks = profile?.bookmarks || [];
+
+    allNotes = await fetchAllNotes();
+    const subjects = uniqueSubjects(allNotes);
+    const subjectSelect = document.getElementById("subject-filter");
+    subjects.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      subjectSelect.appendChild(opt);
+    });
+
+    const initialQuery = getParam("q");
+    if (initialQuery) document.getElementById("search-input").value = initialQuery;
+
+    render();
+  });
+
+  function render() {
+    const search = document.getElementById("search-input").value;
+    const subject = document.getElementById("subject-filter").value;
+    const bookmarkOnly = document.getElementById("bookmark-filter").value === "bookmarked";
+
+    let results = filterNotes(allNotes, { search, subject });
+    if (bookmarkOnly) results = results.filter((n) => bookmarks.includes(n.id));
+
+    const grid = document.getElementById("notes-grid");
+    if (results.length === 0) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">📭</div><p>No notes match your filters.</p></div>`;
+      return;
+    }
+
+    grid.innerHTML = results
+      .map((note) => {
+        const isBookmarked = bookmarks.includes(note.id);
+        return `
+          <div class="note-card">
+            <div class="flex justify-between items-center">
+              <div class="card-icon">📄</div>
+              <button class="bookmark-btn ${isBookmarked ? "active" : ""}" data-id="${note.id}" title="Bookmark">
+                ${isBookmarked ? "★" : "☆"}
+              </button>
+            </div>
+            <h3>${escapeHtml(note.title)}</h3>
+            <p>${escapeHtml(note.description || "")}</p>
+            <div class="card-meta">
+              <span class="badge badge-blue">${escapeHtml(note.subject || "General")}</span>
+              <span>${formatDate(note.created_at)}</span>
+            </div>
+            <div class="card-actions">
+              ${note.file_url ? `<a href="${note.file_url}" target="_blank" rel="noopener" data-download-id="${note.id}" class="btn btn-primary btn-sm w-full">Download</a>` : `<span class="btn btn-outline btn-sm w-full" style="opacity:.5;">No file attached</span>`}
+            </div>
+          </div>`;
+      })
+      .join("");
+
+    grid.querySelectorAll("[data-download-id]").forEach((link) => {
+      link.addEventListener("click", () => {
+        const note = results.find((n) => n.id === link.dataset.downloadId);
+        if (note) logNoteView(userId, note.id, note.title);
+      });
+    });
+
+    grid.querySelectorAll(".bookmark-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const noteId = btn.dataset.id;
+        const wasBookmarked = bookmarks.includes(noteId);
+        try {
+          const nowBookmarked = await toggleBookmark(userId, noteId, wasBookmarked);
+          bookmarks = nowBookmarked ? [...bookmarks, noteId] : bookmarks.filter((id) => id !== noteId);
+          toast(nowBookmarked ? "Note bookmarked" : "Bookmark removed", "success");
+          render();
+        } catch (e) {
+          toast("Couldn't update bookmark. Try again.", "error");
+        }
+      });
+    });
+  }
+
+  document.getElementById("search-input").addEventListener("input", debounce(render, 250));
+  document.getElementById("subject-filter").addEventListener("change", render);
+  document.getElementById("bookmark-filter").addEventListener("change", render);
+</script>
+</body>
+</html>

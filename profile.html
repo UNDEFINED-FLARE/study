@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your profile — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container-narrow section">
+  <div class="section-head"><div><h2>Your profile</h2><p>Manage your account details.</p></div></div>
+
+  <div class="card card-pad" style="text-align:center; margin-bottom:20px;">
+    <div id="avatar-preview" class="nav-avatar" style="width:84px; height:84px; font-size:1.6rem; margin:0 auto 14px; background-size:cover; background-position:center;"></div>
+    <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+      Change photo
+      <input type="file" id="photo-input" accept="image/*" style="display:none;">
+    </label>
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:20px;">
+    <div class="alert" id="name-alert"></div>
+    <form id="name-form">
+      <div class="field"><label for="fullName">Full name</label><input class="input" id="fullName" type="text" required></div>
+      <button class="btn btn-primary" type="submit">Save name</button>
+    </form>
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:20px;">
+    <div class="alert" id="email-alert"></div>
+    <form id="email-form">
+      <div class="field"><label for="email">Email address</label><input class="input" id="email" type="email" required></div>
+      <div class="field"><label for="emailPassword">Current password (to confirm this change)</label><input class="input" id="emailPassword" type="password" required></div>
+      <button class="btn btn-primary" type="submit">Update email</button>
+    </form>
+  </div>
+
+  <div class="card card-pad">
+    <div class="alert" id="password-alert"></div>
+    <form id="password-form">
+      <div class="field"><label for="currentPassword">Current password</label><input class="input" id="currentPassword" type="password" required></div>
+      <div class="field"><label for="newPassword">New password</label><input class="input" id="newPassword" type="password" required minlength="8"></div>
+      <button class="btn btn-primary" type="submit">Update password</button>
+    </form>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { updateName, changeEmail, changePassword, uploadProfilePicture } from "/js/profile.js";
+  import { initials, friendlyAuthError, toast } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+  let currentUser, currentProfile;
+
+  requireAuth().then(({ user, profile }) => {
+    currentUser = user;
+    currentProfile = profile;
+    renderNav({ role: profile?.role || "student", active: "profile", profile });
+
+    document.getElementById("fullName").value = profile?.name || "";
+    document.getElementById("email").value = profile?.email || user.email || "";
+    setAvatar(profile?.profile_image);
+  });
+
+  function setAvatar(url) {
+    const el = document.getElementById("avatar-preview");
+    if (url) {
+      el.style.backgroundImage = `url(${url})`;
+      el.textContent = "";
+    } else {
+      el.style.backgroundImage = "";
+      el.textContent = initials(currentProfile?.name);
+    }
+  }
+
+  function showAlert(id, message, type) {
+    const el = document.getElementById(id);
+    el.textContent = message;
+    el.className = `alert alert-${type} show`;
+  }
+
+  function handleSubmit(formId, alertId, action, successMessage) {
+    document.getElementById(formId).addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type="submit"]');
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+      try {
+        await action();
+        showAlert(alertId, successMessage, "success");
+        toast(successMessage, "success");
+      } catch (err) {
+        showAlert(alertId, friendlyAuthError(err), "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+  }
+
+  handleSubmit("name-form", "name-alert", async () => {
+    const name = document.getElementById("fullName").value.trim();
+    await updateName(currentUser, name);
+  }, "Name updated.");
+
+  handleSubmit("email-form", "email-alert", async () => {
+    const newEmail = document.getElementById("email").value.trim();
+    const password = document.getElementById("emailPassword").value;
+    await changeEmail(currentUser, newEmail, password);
+    document.getElementById("emailPassword").value = "";
+  }, "Email updated.");
+
+  handleSubmit("password-form", "password-alert", async () => {
+    const currentPassword = document.getElementById("currentPassword").value;
+    const newPassword = document.getElementById("newPassword").value;
+    await changePassword(currentUser, newPassword, currentPassword);
+    document.getElementById("password-form").reset();
+  }, "Password updated.");
+
+  document.getElementById("photo-input").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const url = await uploadProfilePicture(currentUser, file);
+      setAvatar(url);
+      toast("Profile picture updated.", "success");
+    } catch (err) {
+      toast("Couldn't upload photo. Please try again.", "error");
+    }
+  });
+</script>
+</body>
+</html>

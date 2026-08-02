@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage students — StudyHub Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section">
+  <div class="section-head">
+    <div><h2>Manage students</h2><p>Everyone registered as a student, with their quiz activity at a glance.</p></div>
+  </div>
+
+  <div class="page-toolbar" style="margin-bottom:16px;">
+    <div class="search-box"><span class="ic">🔍</span><input type="text" id="student-search" placeholder="Search by name or email..."></div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Student</th><th>Email</th><th>Joined</th><th>Attempts</th><th>Avg. score</th><th></th></tr></thead>
+        <tbody id="students-tbody">
+          <tr><td colspan="6"><div class="skeleton" style="height:20px;"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub Admin.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { fetchAllStudents, fetchAllResultsGrouped, removeStudentProfile } from "/js/admin-students.js";
+  import { escapeHtml, formatDate, initials, toast, debounce } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+  let students = [];
+  let resultsByUser = {};
+
+  requireAuth("admin").then(async ({ profile }) => {
+    renderNav({ role: "admin", active: "students", profile });
+    await loadStudents();
+  });
+
+  async function loadStudents() {
+    [students, resultsByUser] = await Promise.all([fetchAllStudents(), fetchAllResultsGrouped()]);
+    render(students);
+  }
+
+  function render(list) {
+    const tbody = document.getElementById("students-tbody");
+    if (list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="icon">🧑‍🎓</div><p>No students match yet.</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = list
+      .map((s) => {
+        const stats = resultsByUser[s.id] || { attempts: 0, totalPct: 0 };
+        const avg = stats.attempts ? Math.round(stats.totalPct / stats.attempts) : null;
+        return `
+        <tr>
+          <td>
+            <div class="flex items-center gap-2">
+              <div class="nav-avatar" style="width:30px;height:30px;font-size:0.7rem;">${initials(s.name)}</div>
+              <b>${escapeHtml(s.name || "Unnamed")}</b>
+            </div>
+          </td>
+          <td>${escapeHtml(s.email || "—")}</td>
+          <td>${formatDate(s.created_at)}</td>
+          <td>${stats.attempts}</td>
+          <td>${avg === null ? "—" : `<span class="badge ${avg >= 50 ? "badge-success" : "badge-error"}">${avg}%</span>`}</td>
+          <td>
+            <div class="row-actions">
+              <button class="icon-btn" data-remove="${s.id}" title="Remove student">🗑️</button>
+            </div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+
+    tbody.querySelectorAll("[data-remove]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const student = students.find((s) => s.id === btn.dataset.remove);
+        if (!confirm(`Remove ${student.name || "this student"}'s profile? This can't be undone.`)) return;
+        try {
+          await removeStudentProfile(student.id);
+          toast("Student removed.", "success");
+          loadStudents();
+        } catch (e) {
+          toast("Couldn't remove student.", "error");
+        }
+      })
+    );
+  }
+
+  document.getElementById("student-search").addEventListener(
+    "input",
+    debounce((e) => {
+      const s = e.target.value.trim().toLowerCase();
+      const filtered = !s
+        ? students
+        : students.filter((st) => st.name?.toLowerCase().includes(s) || st.email?.toLowerCase().includes(s));
+      render(filtered);
+    }, 250)
+  );
+</script>
+</body>
+</html>

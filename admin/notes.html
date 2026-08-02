@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage notes — StudyHub Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section">
+  <div class="section-head">
+    <div><h2>Manage notes</h2><p>Upload and organize study notes for students.</p></div>
+    <button class="btn btn-primary" id="new-note-btn">+ Upload note</button>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Title</th><th>Subject</th><th>Uploaded</th><th>File</th><th></th></tr></thead>
+        <tbody id="notes-tbody">
+          <tr><td colspan="5"><div class="skeleton" style="height:20px;"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Note editor modal -->
+<div class="modal-overlay" id="note-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="modal-title">Upload note</h3><button class="modal-close" id="modal-close">&times;</button></div>
+    <div class="alert alert-error" id="note-form-alert"></div>
+    <form id="note-form">
+      <input type="hidden" id="note-id">
+      <input type="hidden" id="note-old-file-path">
+      <div class="field"><label for="note-title">Title</label><input class="input" id="note-title" required></div>
+      <div class="field"><label for="note-subject">Subject</label><input class="input" id="note-subject" required placeholder="e.g. Mathematics"></div>
+      <div class="field"><label for="note-description">Description</label><textarea class="textarea" id="note-description" rows="3"></textarea></div>
+      <div class="field"><label for="note-file">File (PDF, DOCX or image)</label><input class="input" id="note-file" type="file" accept=".pdf,.doc,.docx,image/*"><div class="hint" id="current-file-hint"></div></div>
+      <button class="btn btn-primary btn-block" type="submit">Save note</button>
+    </form>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub Admin.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { fetchAllNotesAdmin, createNote, updateNote, deleteNote } from "/js/admin-notes.js";
+  import { escapeHtml, formatDate, toast, friendlyAuthError } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+  let notes = [];
+
+  requireAuth("admin").then(async ({ profile }) => {
+    renderNav({ role: "admin", active: "notes", profile });
+    await loadNotes();
+  });
+
+  async function loadNotes() {
+    notes = await fetchAllNotesAdmin();
+    const tbody = document.getElementById("notes-tbody");
+    if (notes.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="icon">📭</div><p>No notes uploaded yet.</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = notes
+      .map(
+        (n) => `
+        <tr>
+          <td><b>${escapeHtml(n.title)}</b><br><span class="text-grey" style="font-size:0.78rem;">${escapeHtml((n.description || "").slice(0, 60))}</span></td>
+          <td><span class="badge badge-blue">${escapeHtml(n.subject || "—")}</span></td>
+          <td>${formatDate(n.created_at)}</td>
+          <td>${n.file_url ? `<a href="${n.file_url}" target="_blank" rel="noopener">View file</a>` : "—"}</td>
+          <td>
+            <div class="row-actions">
+              <button class="icon-btn" data-edit="${n.id}" title="Edit">✏️</button>
+              <button class="icon-btn" data-delete="${n.id}" title="Delete">🗑️</button>
+            </div>
+          </td>
+        </tr>`
+      )
+      .join("");
+
+    tbody.querySelectorAll("[data-edit]").forEach((btn) => btn.addEventListener("click", () => openModal(btn.dataset.edit)));
+    tbody.querySelectorAll("[data-delete]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const note = notes.find((n) => n.id === btn.dataset.delete);
+        if (!confirm(`Delete "${note.title}"? This can't be undone.`)) return;
+        try {
+          await deleteNote(note.id, note.file_path);
+          toast("Note deleted.", "success");
+          loadNotes();
+        } catch (e) {
+          toast("Couldn't delete note.", "error");
+        }
+      })
+    );
+  }
+
+  const modal = document.getElementById("note-modal");
+  document.getElementById("new-note-btn").addEventListener("click", () => openModal());
+  document.getElementById("modal-close").addEventListener("click", () => modal.classList.remove("open"));
+
+  function openModal(noteId) {
+    const note = notes.find((n) => n.id === noteId);
+    document.getElementById("modal-title").textContent = note ? "Edit note" : "Upload note";
+    document.getElementById("note-id").value = noteId || "";
+    document.getElementById("note-old-file-path").value = note?.file_path || "";
+    document.getElementById("note-title").value = note?.title || "";
+    document.getElementById("note-subject").value = note?.subject || "";
+    document.getElementById("note-description").value = note?.description || "";
+    document.getElementById("note-file").value = "";
+    document.getElementById("current-file-hint").textContent = note?.file_url ? "A file is already attached — choose a new one to replace it." : "";
+    document.getElementById("note-form-alert").classList.remove("show");
+    modal.classList.add("open");
+  }
+
+  document.getElementById("note-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    const noteId = document.getElementById("note-id").value;
+    const payload = {
+      title: document.getElementById("note-title").value.trim(),
+      subject: document.getElementById("note-subject").value.trim(),
+      description: document.getElementById("note-description").value.trim(),
+      file: document.getElementById("note-file").files[0] || null,
+    };
+
+    try {
+      if (noteId) {
+        payload.oldFilePath = document.getElementById("note-old-file-path").value;
+        await updateNote(noteId, payload);
+        toast("Note updated.", "success");
+      } else {
+        await createNote(payload);
+        toast("Note uploaded.", "success");
+      }
+      modal.classList.remove("open");
+      loadNotes();
+    } catch (err) {
+      const alertEl = document.getElementById("note-form-alert");
+      alertEl.textContent = friendlyAuthError(err);
+      alertEl.classList.add("show");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save note";
+    }
+  });
+</script>
+</body>
+</html>

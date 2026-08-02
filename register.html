@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create your account — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="mark">S</div>
+      <div class="auth-title">Create your account</div>
+      <div class="auth-sub">Start organizing your studying today.</div>
+    </div>
+
+    <div class="card card-pad">
+      <div class="alert alert-error" id="form-alert"></div>
+
+      <form id="register-form" novalidate>
+        <div class="field" id="field-name">
+          <label for="fullName">Full name</label>
+          <input class="input" type="text" id="fullName" placeholder="Jane Dlamini" required autocomplete="name">
+          <div class="error-text">Please enter your full name.</div>
+        </div>
+
+        <div class="field" id="field-email">
+          <label for="email">Email</label>
+          <input class="input" type="email" id="email" placeholder="you@example.com" required autocomplete="email">
+          <div class="error-text">Please enter a valid email address.</div>
+        </div>
+
+        <div class="field" id="field-password">
+          <label for="password">Password</label>
+          <div class="input-group">
+            <input class="input" type="password" id="password" placeholder="At least 8 characters" required autocomplete="new-password">
+            <button type="button" class="toggle-visibility" data-target="password">Show</button>
+          </div>
+          <div class="error-text">Password must be at least 8 characters.</div>
+        </div>
+
+        <div class="field" id="field-confirm">
+          <label for="confirmPassword">Confirm password</label>
+          <div class="input-group">
+            <input class="input" type="password" id="confirmPassword" placeholder="Re-enter your password" required autocomplete="new-password">
+            <button type="button" class="toggle-visibility" data-target="confirmPassword">Show</button>
+          </div>
+          <div class="error-text">Passwords don't match.</div>
+        </div>
+
+        <button class="btn btn-primary btn-block" type="submit">Create account</button>
+      </form>
+    </div>
+
+    <div class="auth-foot">Already have an account? <a href="/login.html">Log in</a></div>
+  </div>
+</div>
+
+<script type="module">
+  import { registerStudent, bindAuthForm } from "/js/auth.js";
+  import { validators } from "/js/utils.js";
+
+  document.querySelectorAll(".toggle-visibility").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = document.getElementById(btn.dataset.target);
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      btn.textContent = show ? "Hide" : "Show";
+    });
+  });
+
+  const form = document.getElementById("register-form");
+  const alertEl = document.getElementById("form-alert");
+
+  function setInvalid(fieldId, invalid) {
+    document.getElementById(fieldId).classList.toggle("invalid", invalid);
+  }
+
+  function validate() {
+    const fullName = document.getElementById("fullName").value.trim();
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const confirmPassword = document.getElementById("confirmPassword").value;
+
+    const nameOk = fullName.length >= 2;
+    const emailOk = validators.isEmail(email);
+    const passOk = validators.minLength(password, 8);
+    const matchOk = password === confirmPassword && confirmPassword.length > 0;
+
+    setInvalid("field-name", !nameOk);
+    setInvalid("field-email", !emailOk);
+    setInvalid("field-password", !passOk);
+    setInvalid("field-confirm", !matchOk);
+
+    return nameOk && emailOk && passOk && matchOk ? { fullName, email, password } : null;
+  }
+
+  bindAuthForm(form, alertEl, async () => {
+    const data = validate();
+    if (!data) throw new Error("Please fix the highlighted fields.");
+    await registerStudent(data);
+    window.location.href = "/dashboard.html";
+  });
+</script>
+</body>
+</html>

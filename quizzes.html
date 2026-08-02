@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quizzes — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container section">
+  <div class="section-head">
+    <div><h2>Practice quizzes</h2><p>Auto-marked quizzes with instant results and explanations.</p></div>
+  </div>
+
+  <div class="flex gap-12" style="flex-wrap:wrap; margin-bottom:22px;">
+    <input class="input" id="search-input" type="text" placeholder="Search quizzes…" style="max-width:320px;">
+    <select class="select" id="subject-filter" style="max-width:200px;">
+      <option value="">All subjects</option>
+    </select>
+  </div>
+
+  <div class="grid grid-3" id="quizzes-grid">
+    <div class="quiz-card"><div class="skeleton" style="height:140px;"></div></div>
+    <div class="quiz-card"><div class="skeleton" style="height:140px;"></div></div>
+    <div class="quiz-card"><div class="skeleton" style="height:140px;"></div></div>
+  </div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { fetchAllQuizzes } from "/js/quiz.js";
+  import { escapeHtml, debounce } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  let allQuizzes = [];
+
+  requireAuth().then(async ({ profile }) => {
+    renderNav({ role: profile?.role || "student", active: "quizzes", profile });
+    allQuizzes = await fetchAllQuizzes();
+
+    const subjects = [...new Set(allQuizzes.map((q) => q.subject).filter(Boolean))].sort();
+    const select = document.getElementById("subject-filter");
+    subjects.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      select.appendChild(opt);
+    });
+
+    render();
+  });
+
+  function render() {
+    const search = document.getElementById("search-input").value.trim().toLowerCase();
+    const subject = document.getElementById("subject-filter").value;
+
+    const results = allQuizzes.filter((q) => {
+      const matchesSearch = !search || q.title?.toLowerCase().includes(search) || q.subject?.toLowerCase().includes(search);
+      const matchesSubject = !subject || q.subject === subject;
+      return matchesSearch && matchesSubject;
+    });
+
+    const grid = document.getElementById("quizzes-grid");
+    if (results.length === 0) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">📭</div><p>No quizzes match your filters.</p></div>`;
+      return;
+    }
+
+    grid.innerHTML = results
+      .map(
+        (quiz) => `
+        <div class="quiz-card">
+          <div class="card-icon purple">📝</div>
+          <h3>${escapeHtml(quiz.title)}</h3>
+          <p>${escapeHtml(quiz.subject || "General")}</p>
+          <div class="card-meta">
+            <span class="badge badge-purple">Pass ${quiz.passing_mark ?? 50}%</span>
+            <span>⏱ ${quiz.timer ? quiz.timer + " min" : "No limit"}</span>
+          </div>
+          <a href="/quiz-take.html?id=${quiz.id}" class="btn btn-primary btn-sm w-full">Start quiz</a>
+        </div>`
+      )
+      .join("");
+  }
+
+  document.getElementById("search-input").addEventListener("input", debounce(render, 250));
+  document.getElementById("subject-filter").addEventListener("change", render);
+</script>
+</body>
+</html>

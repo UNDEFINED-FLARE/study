@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz results — StudyHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<div class="container-narrow section" id="results-shell">
+  <div class="empty-state"><div class="icon">⏳</div><p>Loading results…</p></div>
+</div>
+
+<footer>&copy; <span id="year"></span> StudyHub.</footer>
+
+<script type="module">
+  import { requireAuth } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { fetchResult, fetchQuiz, fetchQuestionsForQuiz } from "/js/quiz.js";
+  import { escapeHtml, getParam } from "/js/utils.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+  const resultId = getParam("id");
+
+  requireAuth().then(async ({ profile }) => {
+    renderNav({ role: profile?.role || "student", active: "quizzes", profile });
+
+    const result = await fetchResult(resultId);
+    if (!result) {
+      document.getElementById("results-shell").innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Result not found.</p></div>`;
+      return;
+    }
+
+    const quiz = await fetchQuiz(result.quiz_id);
+    const questions = await fetchQuestionsForQuiz(result.quiz_id);
+    const questionsById = Object.fromEntries(questions.map((q) => [q.id, q]));
+
+    const passed = result.percentage >= (quiz?.passing_mark ?? 50);
+    const ringColor = passed ? "#16A34A" : "#DC2626";
+    const circumference = 2 * Math.PI * 65;
+    const offset = circumference - (result.percentage / 100) * circumference;
+
+    const reviewHtml = result.answers
+      .map((a, i) => {
+        const q = questionsById[a.questionId];
+        if (!q) return "";
+        return `
+          <div class="question-card">
+            <div class="question-num">Question ${i + 1} ${a.isCorrect ? "· Correct" : "· Incorrect"}</div>
+            <div class="question-text">${escapeHtml(q.question)}</div>
+            <div class="option-list">
+              <div class="option-item ${a.isCorrect ? "correct" : "incorrect"}">Your answer: ${escapeHtml(a.userAnswer || "(no answer)")}</div>
+              ${!a.isCorrect ? `<div class="option-item correct">Correct answer: ${escapeHtml(a.correct)}</div>` : ""}
+            </div>
+            ${q.explanation ? `<p class="text-grey mt-16" style="font-size:0.85rem;">💡 ${escapeHtml(q.explanation)}</p>` : ""}
+          </div>`;
+      })
+      .join("");
+
+    document.getElementById("results-shell").innerHTML = `
+      <div class="result-hero">
+        <div class="result-ring">
+          <svg width="150" height="150">
+            <circle cx="75" cy="75" r="65" stroke="#E5E7EB" stroke-width="12" fill="none"/>
+            <circle cx="75" cy="75" r="65" stroke="${ringColor}" stroke-width="12" fill="none"
+              stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+          </svg>
+          <div class="pct">${result.percentage}%</div>
+        </div>
+        <h2>${passed ? "Nice work — you passed!" : "Not quite a pass, keep practicing."}</h2>
+        <p class="text-grey mt-8">${quiz ? escapeHtml(quiz.title) : ""} · Scored ${result.score} out of ${result.total}</p>
+        <div class="flex gap-12 justify-between mt-24" style="max-width:320px; margin:24px auto 0;">
+          <a href="/quizzes.html" class="btn btn-outline w-full">More quizzes</a>
+          <a href="/quiz-take.html?id=${result.quiz_id}" class="btn btn-primary w-full">Retry quiz</a>
+        </div>
+      </div>
+
+      <div class="section-head" style="margin-top:20px;"><h2>Review your answers</h2></div>
+      ${reviewHtml}
+    `;
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyHub — Study smarter, together</title>
+<meta name="description" content="StudyHub: organized notes, practice quizzes and progress tracking for students.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="container hero-inner">
+    <h1>Study smarter with <span class="accent">organized notes</span> &amp; instant feedback.</h1>
+    <p>Browse subject notes, practice with auto-marked quizzes, and watch your progress grow — all in one place.</p>
+    <form class="hero-search" id="hero-search-form">
+      <input class="input" type="text" id="hero-search-input" placeholder="Search notes, subjects, quizzes…" autocomplete="off">
+      <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+    <div class="hero-stats">
+      <div class="hero-stat"><b id="stat-notes">–</b><span>Notes available</span></div>
+      <div class="hero-stat"><b id="stat-quizzes">–</b><span>Practice quizzes</span></div>
+      <div class="hero-stat"><b id="stat-students">–</b><span>Students learning</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section container">
+  <div class="section-head">
+    <div><h2>Featured notes</h2><p>Fresh study material across every subject.</p></div>
+    <a href="/notes.html" class="btn btn-outline btn-sm">Browse all notes</a>
+  </div>
+  <div class="grid grid-3" id="featured-notes">
+    <div class="note-card"><div class="skeleton" style="height:120px;"></div></div>
+    <div class="note-card"><div class="skeleton" style="height:120px;"></div></div>
+    <div class="note-card"><div class="skeleton" style="height:120px;"></div></div>
+  </div>
+</section>
+
+<section class="section container">
+  <div class="section-head">
+    <div><h2>Latest quizzes</h2><p>Test yourself and get instant, auto-graded results.</p></div>
+    <a href="/quizzes.html" class="btn btn-outline btn-sm">Browse all quizzes</a>
+  </div>
+  <div class="grid grid-3" id="latest-quizzes">
+    <div class="quiz-card"><div class="skeleton" style="height:120px;"></div></div>
+    <div class="quiz-card"><div class="skeleton" style="height:120px;"></div></div>
+    <div class="quiz-card"><div class="skeleton" style="height:120px;"></div></div>
+  </div>
+</section>
+
+<footer>&copy; <span id="year"></span> StudyHub. Built for students who like to keep track.</footer>
+
+<script type="module">
+  import { onAuthReady } from "/js/auth.js";
+  import { renderNav } from "/js/nav.js";
+  import { escapeHtml, formatDate } from "/js/utils.js";
+  import { db } from "/js/firebase-config.js";
+  import { collection, getDocs, query, orderBy, limit, getCountFromServer } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  onAuthReady().then(({ user, profile }) => {
+    renderNav({ role: user ? profile?.role || "student" : "guest", active: "", profile });
+  });
+
+  document.getElementById("hero-search-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = document.getElementById("hero-search-input").value.trim();
+    window.location.href = `/notes.html?q=${encodeURIComponent(q)}`;
+  });
+
+  function noteCardHtml(note) {
+    return `
+      <div class="note-card">
+        <div class="card-icon">📄</div>
+        <h3>${escapeHtml(note.title)}</h3>
+        <p>${escapeHtml(note.description || "")}</p>
+        <div class="card-meta">
+          <span class="badge badge-blue">${escapeHtml(note.subject || "General")}</span>
+          <span>${formatDate(note.created_at)}</span>
+        </div>
+        <a href="/notes.html?id=${note.id}" class="btn btn-outline btn-sm w-full">View note</a>
+      </div>`;
+  }
+
+  function quizCardHtml(quiz) {
+    return `
+      <div class="quiz-card">
+        <div class="card-icon purple">📝</div>
+        <h3>${escapeHtml(quiz.title)}</h3>
+        <p>${escapeHtml(quiz.subject || "General")} · Passing mark ${quiz.passing_mark ?? 50}%</p>
+        <div class="card-meta">
+          <span>⏱ ${quiz.timer ? quiz.timer + " min" : "No limit"}</span>
+        </div>
+        <a href="/quiz-take.html?id=${quiz.id}" class="btn btn-primary btn-sm w-full">Start quiz</a>
+      </div>`;
+  }
+
+  async function loadHomepage() {
+    try {
+      const notesQ = query(collection(db, "notes"), orderBy("created_at", "desc"), limit(3));
+      const notesSnap = await getDocs(notesQ);
+      const notesEl = document.getElementById("featured-notes");
+      if (notesSnap.empty) {
+        notesEl.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">📚</div><p>No notes uploaded yet — check back soon.</p></div>`;
+      } else {
+        notesEl.innerHTML = notesSnap.docs.map((d) => noteCardHtml({ id: d.id, ...d.data() })).join("");
+      }
+    } catch (e) {
+      console.warn("Could not load notes (check Firebase config):", e);
+    }
+
+    try {
+      const quizzesQ = query(collection(db, "quizzes"), orderBy("created_at", "desc"), limit(3));
+      const quizzesSnap = await getDocs(quizzesQ);
+      const quizzesEl = document.getElementById("latest-quizzes");
+      if (quizzesSnap.empty) {
+        quizzesEl.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">📝</div><p>No quizzes published yet — check back soon.</p></div>`;
+      } else {
+        quizzesEl.innerHTML = quizzesSnap.docs.map((d) => quizCardHtml({ id: d.id, ...d.data() })).join("");
+      }
+    } catch (e) {
+      console.warn("Could not load quizzes (check Firebase config):", e);
+    }
+
+    try {
+      const [notesCount, quizzesCount, usersCount] = await Promise.all([
+        getCountFromServer(collection(db, "notes")),
+        getCountFromServer(collection(db, "quizzes")),
+        getCountFromServer(collection(db, "users")),
+      ]);
+      document.getElementById("stat-notes").textContent = notesCount.data().count;
+      document.getElementById("stat-quizzes").textContent = quizzesCount.data().count;
+      document.getElementById("stat-students").textContent = usersCount.data().count;
+    } catch (e) {
+      console.warn("Could not load stats (check Firebase config):", e);
+    }
+  }
+
+  loadHomepage();
+</script>
+</body>
+</html>
