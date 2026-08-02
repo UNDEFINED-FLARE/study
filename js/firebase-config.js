@@ -18,14 +18,12 @@ import { getFirestore } from "https://www.gstatic.com/firebasejs/10.13.0/firebas
 import { getStorage } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBSMvHpZ0_VkqWjJ94UMa6vqEhFiqrsIWM",
-authDomain: "rare-5f47e.firebaseapp.com",
-databaseURL: "https://rare-5f47e-default-rtdb.firebaseio.com",
-projectId: "rare-5f47e",
-storageBucket: "rare-5f47e.appspot.com",
-messagingSenderId: "811727087812",
-appId: "1:811727087812:web:d362e68abf6c26acf24191"
-
+  apiKey: "AIzaSyC9z5TmK1aJUulrEIscwe9MZ5qcusJMOpc",
+    authDomain: "blueflare-47c29.firebaseapp.com",
+    projectId: "blueflare-47c29",
+    storageBucket: "blueflare-47c29.firebasestorage.app",
+    messagingSenderId: "348839866641",
+    appId: "1:348839866641:web:64fb433419c80c15dddcb0"
 };
 
 export const app = initializeApp(firebaseConfig);
